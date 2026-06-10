@@ -70,9 +70,9 @@ def jalankan_bot():
     muat_library_berat()
     import time
 
-    nama_file = 'data.csv' 
+    nama_file = 'data.xlsx' 
     try:
-        df = pd.read_csv(nama_file)
+        df = pd.read_excel(nama_file)
         df['NIK'] = df['NIK'].astype(str).str.replace('.0', '', regex=False)
     except Exception as e:
         print(f"Gagal membaca file {nama_file}")

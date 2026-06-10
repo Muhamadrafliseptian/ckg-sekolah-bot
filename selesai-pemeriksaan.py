@@ -73,11 +73,11 @@ def jalankan_bot():
     muat_library_berat()
     import time
     
-    nama_file = 'data.csv' 
+    nama_file = 'data.xlsx' 
     file_log_rekap = 'rekap-posisi-pemeriksaan.txt'  
 
     try:
-        df = pd.read_csv(nama_file)
+        df = pd.read_excel(nama_file)
         df['Sekolah'] = df['Sekolah'].astype(str)
         df['kelas'] = df['kelas'].astype(str)
         df['NIK'] = df['NIK'].astype(str).str.replace('.0', '', regex=False)

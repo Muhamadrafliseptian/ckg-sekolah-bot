@@ -84,11 +84,11 @@ def main():
     jalankan_bot()
     import time
 
-    nama_file = 'data.csv' 
+    nama_file = 'data.xlsx' 
     file_log_gagal = 'nik_gagal_sedang.txt' 
     
     try:
-        df = pd.read_csv(nama_file)
+        df = pd.read_excel(nama_file)
         df['Sekolah'] = df['Sekolah'].astype(str)
         df['kelas'] = df['kelas'].astype(str)
         df['BB'] = df['BB'].astype(str)
