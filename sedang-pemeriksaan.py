@@ -125,11 +125,14 @@ def main():
     with open(file_log_gagal, 'w') as f:
         f.write("=== DAFTAR NIK GAGAL ===\n")
 
-    print("🔄 Sedang mencoba membuka Google Chrome...")
     options = webdriver.ChromeOptions()
+
+    user_profile = os.environ.get("USERPROFILE")
     options.add_argument("--user-data-dir=./ChromeProfile") 
+    
     # path_profile = os.path.join(user_profile, "AppData", "Local", "Google", "Chrome", "User Data", "BotKemenkesProfile")
-    # options.add_argument(f"--user-data-dir={path_profile}") 
+    # options.add_argument(f"--user-data-dir={path_profile}")
+    
     options.add_argument("--remote-debugging-port=9222")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")

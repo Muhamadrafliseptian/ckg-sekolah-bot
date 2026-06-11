@@ -74,6 +74,10 @@ def jalankan_bot():
     try:
         df = pd.read_excel(nama_file)
         df['NIK'] = df['NIK'].astype(str).str.replace('.0', '', regex=False)
+        if pd.api.types.is_datetime64_any_dtype(df['Tanggal Lahir']):
+            df['Tanggal Lahir'] = df['Tanggal Lahir'].dt.strftime('%d/%m/%Y')
+        else:
+            df['Tanggal Lahir'] = df['Tanggal Lahir'].astype(str).str.strip()
     except Exception as e:
         print(f"Gagal membaca file {nama_file}")
         os.system("pause")
@@ -167,7 +171,7 @@ def jalankan_bot():
             jk_sekarang = row['Jenis Kelamin']
             nama_sekarang = row['Nama']
             hp_sekarang = row['Hp']
-            tanggal_sekarang = row['Tanggal Lahir']
+            tanggal_sekarang = str(row['Tanggal Lahir']).strip()
             alamat_sekarang = row['alamat']
             print(f"\n[{index+1}/{len(df)}] Memproses NIK: {nik_sekarang}")
             
@@ -262,6 +266,18 @@ def jalankan_bot():
                         input_nama.send_keys(Keys.ENTER)
                         print("-> Menekan ENTER untuk memproses...")
                         time.sleep(0.3)
+                        
+                        tanggal_str_bersih = str(tanggal_sekarang).strip().split(" ")[0] # mengantisipasi jika ada jam (00:00:00)
+                        
+                        try:
+                            # Jika dari excel terbaca format YYYY-MM-DD (kadang otomatis berubah)
+                            if "-" in tanggal_str_bersih:
+                                tanggal_obj = datetime.strptime(tanggal_str_bersih, '%Y-%m-%d')
+                            else:
+                                tanggal_obj = datetime.strptime(tanggal_str_bersih, '%d/%m/%Y')
+                        except Exception as parse_err:
+                            print(f"       [ERROR] Gagal parsing tanggal '{tanggal_sekarang}': {parse_err}")
+                            raise parse_err
 
                         tanggal_obj = datetime.strptime(str(tanggal_sekarang).strip(), '%d/%m/%Y')
                         tanggal_target = tanggal_obj.strftime('%Y-%m-%d')
@@ -370,12 +386,24 @@ def jalankan_bot():
                         tombol_selanjutnya_manual.click()
                         time.sleep(1.0)
                         
+                        try:
+                            pesan_error = WebDriverWait(driver, 2).until(
+                                EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Data peserta tidak valid')]"))
+                            )
+                            if pesan_error.is_displayed():
+                                print("⚠️ [Sistem Kemenkes]: Data peserta tidak valid! Melakukan redirect...")
+                                driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pendaftaran-anak-sekolah")
+                                time.sleep(1.5)
+                                continue 
+                        except Exception:
+                            print("Mengklik tombol Lanjutkan...")
+
                         print("Mengklik tombol Lanjutkan...")
                         tombol_lanjutkan_dua = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='button' and contains(., 'Lanjutkan')]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_lanjutkan_dua)
                         time.sleep(0.3)
                         tombol_lanjutkan_dua.click()
-                        time.sleep(1.0)
+                        time.sleep(1.0) 
                         
                         print("Membuka dropdown status pernikahan...")
                         dropdown_status = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(., 'Pilih status pernikahan') and @class[contains(., 'cursor-pointer')]]")))
