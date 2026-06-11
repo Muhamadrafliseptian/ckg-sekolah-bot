@@ -1,1 +1,24 @@
 === DAFTAR NIK GAGAL ===
+
+--- Sesi Baru: Baris 1 sampai 16 ---
+
+--- Sesi Baru: Baris 8 sampai 15 ---
+
+--- Sesi Baru: Baris 9 sampai 15 ---
+Baris 15 - NIK: 3173055107141007 (Status: Tidak ada data di Sedang Pemeriksaan)
+
+--- Sesi Baru: Baris 15 sampai 15 ---
+Baris 15 - NIK: 3173055107141007 (Status: Tidak ada data di Sedang Pemeriksaan)
+
+--- Sesi Baru: Baris 15 sampai 15 ---
+Baris 15 - NIK: 3173055107141007 (Status: Tidak ada data di Sedang Pemeriksaan)
+
+--- Sesi Baru: Baris 8 sampai 8 ---
+
+--- Sesi Baru: Baris 6 sampai 6 ---
+Baris 6 - NIK: 3173051406141006 (Error: TimeoutException)
+
+--- Sesi Baru: Baris 6 sampai 6 ---
+
+--- Sesi Baru: Baris 7 sampai 7 ---
+Baris 7 - NIK: 3173050206141007 (Status: Tidak ada data di Sedang Pemeriksaan)

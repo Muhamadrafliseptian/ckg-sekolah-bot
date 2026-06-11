@@ -103,10 +103,10 @@ def jalankan_bot():
     options = webdriver.ChromeOptions()
 
     user_profile = os.environ.get("USERPROFILE")
-    options.add_argument("--user-data-dir=./ChromeProfile") 
+    # options.add_argument("--user-data-dir=./ChromeProfile") 
     
-    # path_profile = os.path.join(user_profile, "AppData", "Local", "Google", "Chrome", "User Data", "BotKemenkesProfile")
-    # options.add_argument(f"--user-data-dir={path_profile}") 
+    path_profile = os.path.join(user_profile, "AppData", "Local", "Google", "Chrome", "User Data", "BotKemenkesProfile")
+    options.add_argument(f"--user-data-dir={path_profile}") 
     options.add_argument("--remote-debugging-port=9222")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -267,19 +267,22 @@ def jalankan_bot():
                         print("-> Menekan ENTER untuk memproses...")
                         time.sleep(0.3)
                         
-                        tanggal_str_bersih = str(tanggal_sekarang).strip().split(" ")[0] # mengantisipasi jika ada jam (00:00:00)
-                        
+                        tanggal_str_bersih = str(tanggal_sekarang).strip().split(" ")[0]
+
                         try:
-                            # Jika dari excel terbaca format YYYY-MM-DD (kadang otomatis berubah)
-                            if "-" in tanggal_str_bersih:
+                            if tanggal_str_bersih.isdigit():
+                                from datetime import timedelta
+                                excel_epoch = datetime(1899, 12, 30)
+                                tanggal_obj = excel_epoch + timedelta(days=int(tanggal_str_bersih))
+                            elif "-" in tanggal_str_bersih:
                                 tanggal_obj = datetime.strptime(tanggal_str_bersih, '%Y-%m-%d')
-                            else:
+                            elif "/" in tanggal_str_bersih:
                                 tanggal_obj = datetime.strptime(tanggal_str_bersih, '%d/%m/%Y')
+                            else:
+                                raise ValueError(f"Format tanggal tidak dikenali: {tanggal_str_bersih}")
                         except Exception as parse_err:
                             print(f"       [ERROR] Gagal parsing tanggal '{tanggal_sekarang}': {parse_err}")
                             raise parse_err
-
-                        tanggal_obj = datetime.strptime(str(tanggal_sekarang).strip(), '%d/%m/%Y')
                         tanggal_target = tanggal_obj.strftime('%Y-%m-%d')
                         tahun_target = tanggal_obj.year
                         bulan_target = tanggal_obj.month

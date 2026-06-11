@@ -83,6 +83,8 @@ def jalankan_bot():
 def main():
     jalankan_bot()
     import time
+    import platform
+    from selenium.common.exceptions import TimeoutException # Pastikan ini di-import jika dibutuhkan di luar muat_library_berat
 
     nama_file = 'data.xlsx' 
     file_log_gagal = 'nik_gagal_sedang.txt' 
@@ -102,51 +104,51 @@ def main():
         if 'Kesehatan Reproduksi Putri - Anak Sekolah' in df.columns:
             df['Kesehatan Reproduksi Putri - Anak Sekolah'] = df['Kesehatan Reproduksi Putri - Anak Sekolah'].astype(str).str.strip()
     except Exception as e:
-        print(f" Gagal membaca file {nama_file}")
+        print(f" ❌ Gagal membaca file {nama_file}")
         return
 
-    print(f" Berhasil membaca {len(df)} data dari spreadsheet.")
-    print("\n--- PENGATURAN DATA ---")
-    try:
-        baris_awal = int(input(f"Masukkan nomor baris awal (1 - {len(df)}): "))
-        baris_akhir = int(input(f"Masukkan nomor baris akhir ({baris_awal} - {len(df)}): "))
-        if baris_awal < 1 or baris_akhir > len(df) or baris_awal > baris_akhir:
-            print(" Rentang baris data tidak valid! Program dihentikan.")
-            return
-    except ValueError:
-        print(" Input harus berupa angka! Program dihentikan.")
-        return
+    print(f" ✅ Berhasil membaca {len(df)} data dari spreadsheet.")
 
-    total_proses = (baris_akhir - baris_awal) + 1
-    sukses_count = 0
-    gagal_count = 0
-    total_durasi_sukses = 0.0
-
-    with open(file_log_gagal, 'w') as f:
-        f.write("=== DAFTAR NIK GAGAL ===\n")
-
+    # ================= INTEGRASI UNTUK WINDOWS & MAC =================
     options = webdriver.ChromeOptions()
+    path_profile = os.path.abspath("./ChromeProfile")
+    options.add_argument(f"--user-data-dir={path_profile}") 
+    
+    sistem_os = platform.system().lower()
+    if "windows" in sistem_os:
+        options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+    elif "darwin" in sistem_os:
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
 
-    user_profile = os.environ.get("USERPROFILE")
-    options.add_argument("--user-data-dir=./ChromeProfile") 
-    
-    # path_profile = os.path.join(user_profile, "AppData", "Local", "Google", "Chrome", "User Data", "BotKemenkesProfile")
-    # options.add_argument(f"--user-data-dir={path_profile}")
-    
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
     options.add_argument("--log-level=3")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
 
     try:
         service = Service()
         driver = webdriver.Chrome(service=service, options=options)
         driver.maximize_window()
     except Exception as e:
-        print(f" Gagal membuka Google Chrome")
+        print(f" ❌ Gagal membuka Google Chrome. Error: {e}")
         return
+
+    # ================= FUNGSI NAVIGASI SMOOTH & AMAN =================
+    def klik_aman_smooth(selector_xpath, waktu_tunggu=4.0):
+        """Menunggu elemen stabil, scroll dengan smooth, beri jeda mikro, lalu klik"""
+        try:
+            elemen = WebDriverWait(driver, waktu_tunggu).until(
+                EC.element_to_be_clickable((By.XPATH, selector_xpath))
+            )
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", elemen)
+            time.sleep(0.3) 
+            elemen.click()
+            return True
+        except Exception:
+            return False
 
     try:
         driver.get("https://sehatindonesiaku.kemkes.go.id/auth/login") 
@@ -164,213 +166,212 @@ def main():
             except Exception:
                 pass
             
-            ckg_sekolah = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[text()='CKG Sekolah']")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ckg_sekolah)
-            ckg_sekolah.click()
-            time.sleep(0.5)
-            
-            pelayanan = wait.until(EC.element_to_be_clickable((By.ID, "menu_pelayanan")))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", pelayanan)
-            pelayanan.click()
-            time.sleep(1.0) 
+            klik_aman_smooth("//span[text()='CKG Sekolah']")
+            time.sleep(0.4)
+            klik_aman_smooth("//*[@id='menu_pelayanan']")
+            time.sleep(0.8) 
         except Exception as e:
-            print(f" Gagal membuka menu navigasi awal")
+            print(f" ❌ Gagal membuka menu navigasi awal")
             driver.quit()
             return
 
         from pertanyaan_mandiri_umum import jawab_semua_tidak
         from pertanyaan_nakes import jawab_pertanyaan_nakes
 
-        for index, row in df.iloc[baris_awal-1:baris_akhir].iterrows():
-            waktu_mulai_data = time.time()
-            
-            sekolah_sekarang = row['Sekolah']
-            kelas_sekarang = row['kelas'] 
-            nik_sekarang = row['NIK']
-            jk_sekarang = row['Jenis Kelamin']
-            
-            menstruasi_sekarang = "Belum"
-            if 'Kesehatan Reproduksi Putri - Anak Sekolah' in row:
-                menstruasi_sekarang = row['Kesehatan Reproduksi Putri - Anak Sekolah']
-                
-            print(f"\n🔍 [{index+1}/{len(df)}] Memproses NIK: {nik_sekarang} ({jk_sekarang})")
-            
+        # ================= LOOPING UTAMA DATA =================
+        while True:
+            print("\n--- PENGATURAN DATA BARU ---")
             try:
-                pilih_sekolah = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Pilih sekolah')]")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", pilih_sekolah)
-                pilih_sekolah.click()
-                time.sleep(0.5)
-                
-                input_sekolah = wait.until(EC.presence_of_element_located((By.ID, "sekolah")))
-                input_sekolah.clear()
-                input_sekolah.send_keys(sekolah_sekarang)
-                time.sleep(0.5)
-                
-                opsi_sekolah = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'hover:bg-gray-1')]//div[contains(text(), '{sekolah_sekarang}') or translate(text(), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')=translate('{sekolah_sekarang}', 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')]")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_sekolah)
-                opsi_sekolah.click()
-                time.sleep(0.5)
-                
-                pilih_kelas = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Pilih kelas')]")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", pilih_kelas)
-                pilih_kelas.click()
-                time.sleep(0.5)
-                
-                opsi_kelas = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(@class, 'hover:bg-gray-1')]//div[contains(text(), '{kelas_sekarang}')]")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_kelas)
-                opsi_kelas.click()
-                time.sleep(0.5)
-                
-                tampilkan_pencarian = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'btn-outline-primary')]//div[contains(text(), 'Tampilkan Pencarian')]")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tampilkan_pencarian)
-                tampilkan_pencarian.click()
-                time.sleep(0.5)
-                
-                dropdown_tipe = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Nomor Tiket')]")))
-                dropdown_tipe.click()
-                time.sleep(0.5)
-                
-                opsi_nik = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'hover:bg-gray-1')]//div[text()='NIK']")))
-                opsi_nik.click()
-                time.sleep(0.5)
-                
-                input_nik_field = wait.until(EC.presence_of_element_located((By.ID, "nik")))
-                input_nik_field.clear()
-                input_nik_field.send_keys(nik_sekarang)
-                input_nik_field.send_keys(Keys.ENTER)
-                time.sleep(1.0)
-                
-                tab_sedang = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'cursor-pointer') and contains(text(), 'Sedang Pemeriksaan')]")))
-                tab_sedang.click()
-                time.sleep(0.5)
-                
-                tombol_mulai = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'btn-outline-primary')]//div[contains(text(), 'Mulai') or contains(text(), 'Lanjutkan')]")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_mulai)
-                tombol_mulai.click()
-                time.sleep(1.2)
+                baris_awal = int(input(f"Masukkan nomor baris awal (1 - {len(df)}): "))
+                baris_akhir = int(input(f"Masukkan nomor baris akhir ({baris_awal} - {len(df)}): "))
+                if baris_awal < 1 or baris_akhir > len(df) or baris_awal > baris_akhir:
+                    print(" ❌ Rentang baris data tidak valid! Silakan isi ulang.")
+                    continue
+            except ValueError:
+                print(" ❌ Input harus berupa angka! Silakan isi ulang.")
+                continue
 
-                targets = [
-                    "Faktor Risiko Gula Darah Anak", "Faktor Risiko Malaria", "Gejala Cemas Remaja",
-                    "Gejala Depresi Remaja", "Gejala Depresi Anak", "Gejala Cemas Anak",
-                    "Kelayakan Tes Kebugaran", "Perilaku Merokok - Anak Sekolah", "Faktor Risiko Hepatitis SD",
-                    "Faktor Risiko TB - Anak Kelas 4-12", "Faktor Risiko TB - Anak Kelas 1-3",
-                    "Riwayat Imunisasi Rutin Anak Sekolah", "Kuesioner Tingkat Aktivitas Fisik - Tingkat Aktivitas Fisik"
-                ]
+            total_proses = (baris_akhir - baris_awal) + 1
+            sukses_count = 0
+            gagal_count = 0
+            total_durasi_sukses = 0.0
 
-                if "perempuan" in jk_sekarang.lower():
-                    targets.append("Kesehatan Reproduksi Putri - Anak Sekolah")
-                elif "laki" in jk_sekarang.lower():
-                    targets.append("Kesehatan Reproduksi Putra - Anak Sekolah")
+            with open(file_log_gagal, 'a') as f:
+                f.write(f"\n--- Sesi Baru: Baris {baris_awal} sampai {baris_akhir} ---\n")
 
-                quick_wait = WebDriverWait(driver, 2.5)
+            for index, row in df.iloc[baris_awal-1:baris_akhir].iterrows():
+                waktu_mulai_data = time.time()
                 
-                for target in targets:
-                    try:
-                        btn_input = quick_wait.until(EC.element_to_be_clickable((By.XPATH, f"//tr[td[contains(text(), '{target}')]]//button[contains(., 'Input Data')]")))
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_input)
-                        btn_input.click()
-                        time.sleep(0.5) 
-                        
-                        jawab_semua_tidak(driver, wait, target, status_menstruasi=menstruasi_sekarang)
-                        time.sleep(0.5)
-                        
-                        tombol_kirim = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@type='button' and @value='Kirim' and contains(@class, 'sd-navigation__complete-btn')]")))
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_kirim)
-                        tombol_kirim.click()
-                        
-                        wait.until(EC.invisibility_of_element_located((By.XPATH, "//input[@type='button' and @value='Kirim']")))
-                        time.sleep(0.5)
-                    except Exception:
-                        continue
-
-                targets_nakes = [
-                    "Gizi Anak Sekolah", "Tekanan Darah Anak dan Remaja",
-                    "Pemeriksaan Penyakit Frambusia Anak Sekolah (untuk daerah endemis atau berisiko frambusia)",
-                    "Pemeriksaan Penyakit Kusta Anak Sekolah", "Pemeriksaan Penyakit Skabies",
-                    "Pemeriksaan Gigi - Anak", "Hasil Pemeriksaan Kebugaran Jasmani Anak", "Skrining Telinga dan Mata - Anak Sekolah"
-                ]
-
-                for target_nakes in targets_nakes:
-                    try:
-                        xpath_btn_nakes = f"//*[contains(text(), '{target_nakes}')]//ancestor::div[contains(@class, 'grid-cols-5') or local-name()='tr']//button[contains(., 'Input Data')]"
-                        btn_input_nakes = quick_wait.until(EC.element_to_be_clickable((By.XPATH, xpath_btn_nakes)))
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_input_nakes)
-                        btn_input_nakes.click()
-                        time.sleep(0.5)
-                        
-                        # Pastikan fungsi ini menerima parameter row dengan benar
-                        jawab_pertanyaan_nakes(driver, wait, target_nakes, row_data=row)
-                        time.sleep(0.5)
-                        
-                        tombol_kirim_nakes = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@type='button' and @value='Kirim' and contains(@class, 'sd-navigation__complete-btn')]")))
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_kirim_nakes)
-                        tombol_kirim_nakes.click()
-                        
-                        wait.until(EC.invisibility_of_element_located((By.XPATH, "//input[@type='button' and @value='Kirim']")))
-                        time.sleep(0.5)
-                    except Exception:
-                        continue
-
-                btn_selesai = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Selesaikan Layanan')]//ancestor::button")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_selesai)
-                btn_selesai.click()
-                time.sleep(1.0)
+                sekolah_sekarang = row['Sekolah']
+                kelas_sekarang = row['kelas'] 
+                nik_sekarang = row['NIK']
+                jk_sekarang = row['Jenis Kelamin']
                 
-                btn_konfirmasi = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Konfirmasi')]//ancestor::button")))
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_konfirmasi)
-                btn_konfirmasi.click()
-                time.sleep(2.0)
-                
-                driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pelayanan-sekolah")
-                time.sleep(1.0)
+                menstruasi_sekarang = "Belum"
+                if 'Kesehatan Reproduksi Putri - Anak Sekolah' in row:
+                    menstruasi_sekarang = row['Kesehatan Reproduksi Putri - Anak Sekolah']
                     
-                waktu_selesai_data = time.time()
-                durasi_data = waktu_selesai_data - waktu_mulai_data
-                total_durasi_sukses += durasi_data
-                sukses_count += 1
-                print(f" Selesai! Waktu input data ini: {durasi_data:.2f} detik")
-                    
-            except Exception as e:
-                print(f" Gagal memproses baris input ini! Error: {type(e).__name__}")
-                with open(file_log_gagal, 'a') as f:
-                    f.write(f"Baris {index+1} - NIK: {nik_sekarang} (Error: {type(e).__name__})\n")
+                print(f"\n🔍 [{index+1}/{len(df)}] Memproses NIK: {nik_sekarang} ({jk_sekarang})")
                 
                 try:
+                    klik_aman_smooth("//span[contains(text(), 'Pilih sekolah')]")
+                    
+                    input_sekolah = wait.until(EC.presence_of_element_located((By.ID, "sekolah")))
+                    input_sekolah.clear()
+                    input_sekolah.send_keys(sekolah_sekarang)
+                    time.sleep(0.4)
+                    
+                    klik_aman_smooth(f"//div[contains(@class, 'hover:bg-gray-1')]//div[contains(text(), '{sekolah_sekarang}') or translate(text(), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')=translate('{sekolah_sekarang}', 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')]")
+                    time.sleep(0.4)
+                    
+                    klik_aman_smooth("//span[contains(text(), 'Pilih kelas')]")
+                    time.sleep(0.3)
+                    
+                    klik_aman_smooth(f"//div[contains(@class, 'hover:bg-gray-1')]//div[contains(text(), '{kelas_sekarang}')]")
+                    time.sleep(0.4)
+                    
+                    klik_aman_smooth("//button[contains(@class, 'btn-outline-primary')]//div[contains(text(), 'Tampilkan Pencarian')]")
+                    time.sleep(0.4)
+                    
+                    klik_aman_smooth("//span[contains(text(), 'Nomor Tiket')]")
+                    time.sleep(0.3)
+                    
+                    klik_aman_smooth("//div[contains(@class, 'hover:bg-gray-1')]//div[text()='NIK']")
+                    time.sleep(0.3)
+                    
+                    input_nik_field = wait.until(EC.presence_of_element_located((By.ID, "nik")))
+                    input_nik_field.clear()
+                    input_nik_field.send_keys(nik_sekarang)
+                    input_nik_field.send_keys(Keys.ENTER)
+                    time.sleep(0.8)
+                    
+                    klik_aman_smooth("//div[contains(@class, 'cursor-pointer') and contains(text(), 'Sedang Pemeriksaan')]")
+                    time.sleep(0.5)
+                    
+                    # --- UKURAN PENGAMAN: DETEKSI DATA KOSONG ---
+                    try:
+                        deteksi_tombol = WebDriverWait(driver, 2.0).until(
+                            EC.element_to_be_clickable((By.XPATH, "//button[contains(@class, 'btn-outline-primary')]//div[contains(text(), 'Mulai') or contains(text(), 'Lanjutkan')]"))
+                        )
+                        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", deteksi_tombol)
+                        time.sleep(0.3)
+                        deteksi_tombol.click()
+                        time.sleep(1.0)
+                    except TimeoutException:
+                        print(f" ⚠️ Skip NIK {nik_sekarang}: Tidak ada data di 'Sedang Pemeriksaan'")
+                        with open(file_log_gagal, 'a') as f:
+                            f.write(f"Baris {index+1} - NIK: {nik_sekarang} (Status: Tidak ada data di Sedang Pemeriksaan)\n")
+                        driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pelayanan-sekolah")
+                        time.sleep(1.5)
+                        gagal_count += 1
+                        continue 
+
+                    # List Target Skrining Mandiri
+                    targets = [
+                        "Faktor Risiko Gula Darah Anak", "Faktor Risiko Malaria", "Gejala Cemas Remaja",
+                        "Gejala Depresi Remaja", "Gejala Depresi Anak", "Gejala Cemas Anak",
+                        "Kelayakan Tes Kebugaran", "Perilaku Merokok - Anak Sekolah", "Faktor Risiko Hepatitis SD",
+                        "Faktor Risiko TB - Anak Kelas 4-12", "Faktor Risiko TB - Anak Kelas 1-3",
+                        "Riwayat Imunisasi Rutin Anak Sekolah", "Kuesioner Tingkat Aktivitas Fisik - Tingkat Aktivitas Fisik"
+                    ]
+
+                    if "perempuan" in jk_sekarang.lower():
+                        targets.append("Kesehatan Reproduksi Putri - Anak Sekolah")
+                    elif "laki" in jk_sekarang.lower():
+                        targets.append("Kesehatan Reproduksi Putra - Anak Sekolah")
+
+                    # --- PROSES SKRINING MANDIRI ---
+                    for target in targets:
+                        xpath_btn = f"//tr[td[contains(text(), '{target}')]]//button[contains(., 'Input Data')]"
+                        if klik_aman_smooth(xpath_btn, waktu_tunggu=1.5):
+                            time.sleep(0.4) 
+                            jawab_semua_tidak(driver, wait, target, status_menstruasi=menstruasi_sekarang)
+                            time.sleep(0.4) 
+                            klik_aman_smooth("//input[@type='button' and @value='Kirim' and contains(@class, 'sd-navigation__complete-btn')]")
+                            WebDriverWait(driver, 3).until(
+                                EC.invisibility_of_element_located((By.XPATH, "//input[@type='button' and @value='Kirim']"))
+                            )
+                            time.sleep(0.3)
+
+                    # List Target Pemeriksaan Nakes
+                    targets_nakes = [
+                        "Gizi Anak Sekolah", "Tekanan Darah Anak dan Remaja",
+                        "Pemeriksaan Penyakit Frambusia Anak Sekolah (untuk daerah endemis atau berisiko frambusia)",
+                        "Pemeriksaan Penyakit Kusta Anak Sekolah", "Pemeriksaan Penyakit Skabies",
+                        "Pemeriksaan Gigi - Anak", "Hasil Pemeriksaan Kebugaran Jasmani Anak", "Skrining Telinga dan Mata - Anak Sekolah"
+                    ]
+
+                    # --- PROSES SKRINING NAKES ---
+                    for target_nakes in targets_nakes:
+                        xpath_btn_nakes = f"//*[contains(text(), '{target_nakes}')]//ancestor::div[contains(@class, 'grid-cols-5') or local-name()='tr']//button[contains(., 'Input Data')]"
+                        if klik_aman_smooth(xpath_btn_nakes, waktu_tunggu=1.5):
+                            time.sleep(0.4)
+                            jawab_pertanyaan_nakes(driver, wait, target_nakes, row_data=row)
+                            time.sleep(0.4)
+                            klik_aman_smooth("//input[@type='button' and @value='Kirim' and contains(@class, 'sd-navigation__complete-btn')]")
+                            WebDriverWait(driver, 3).until(
+                                EC.invisibility_of_element_located((By.XPATH, "//input[@type='button' and @value='Kirim']"))
+                            )
+                            time.sleep(0.3)
+
+                    # ================= SINKRONISASI CODES FIX KOSONG / SPASI NYASAR =================
+                    # Menghilangkan spasi '//* *' menjadi '//button[contains(., "Selesaikan Layanan")]' agar akurat targetnya
+                    klik_aman_smooth("//button[contains(., 'Selesaikan Layanan')]", waktu_tunggu=5.0)
+                    time.sleep(0.8)
+                    
+                    klik_aman_smooth("//button[contains(., 'Konfirmasi')]", waktu_tunggu=5.0)
+                    time.sleep(2.5)
+                    
                     driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pelayanan-sekolah")
-                    time.sleep(2)
+                    time.sleep(1.0)
+                        
+                    waktu_selesai_data = time.time()
+                    durasi_data = waktu_selesai_data - waktu_mulai_data
+                    total_durasi_sukses += durasi_data
+                    sukses_count += 1
+                    print(f"  Selesai! Waktu input data ini: {durasi_data:.2f} detik")
+                        
+                except Exception as e:
+                    print(f" ❌ Gagal memproses NIK ini! Sistem mengalihkan halaman... (Error: {type(e).__name__})")
+                    with open(file_log_gagal, 'a') as f:
+                        f.write(f"Baris {index+1} - NIK: {nik_sekarang} (Error: {type(e).__name__})\n")
+                    
+                    try:
+                        driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pelayanan-sekolah")
+                        time.sleep(1.5)
+                    except:
+                        pass
+                    driver.refresh()
+                    time.sleep(2.0)
+                    gagal_count += 1
+                    continue
+
+            # ================= REKAP SESI =================
+            rata_rata_waktu = (total_durasi_sukses / sukses_count) if sukses_count > 0 else 0
+            print("\n==================================================")
+            print("         RENTANG DATA INI SELESAI PROSES          ")
+            print("==================================================")
+            print(f" Sesi Baris        : {baris_awal} sampai {baris_akhir}")
+            print(f" Berhasil Diproses : {sukses_count} data")
+            print(f" Gagal/Dilewati    : {gagal_count} data")
+            print(f" Rata-rata Waktu   : {rata_rata_waktu:.2f} detik / data")
+            print("==================================================")
+
+            lanjut = input("\nMau lanjut input rentang baris data lagi? (y/t): ").strip().lower()
+            if lanjut != 'y':
+                print("\nSesi selesai. Menutup browser...")
+                try:
+                    driver.quit()
                 except:
                     pass
-                driver.refresh()
-                time.sleep(2.5)
-                gagal_count += 1
-                continue
+                break
+            else:
+                print("🔄 Bersiap untuk sesi baru, kembali ke menu utama...")
+                driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pelayanan-sekolah")
+                time.sleep(1.5)
 
     except Exception as main_err:
         print(f"⚠️ Terjadi interupsi sistem utama: {main_err}")
-
-    rata_rata_waktu = (total_durasi_sukses / sukses_count) if sukses_count > 0 else 0
-
-    print("\n==================================================")
-    print("       SEMUA DATA DALAM RENTANG SELESAI PROSES      ")
-    print("==================================================")
-    print(f" Total Target Data : {total_proses} data")
-    print(f" Berhasil Diproses : {sukses_count} data")
-    print(f" Gagal/Dilewati    : {gagal_count} data")
-    print(f" Rata-rata Waktu   : {rata_rata_waktu:.2f} detik / data")
-    print("==================================================")
-
-    print("\nGoogle Chrome ditahan agar tetap terbuka.")
-    print("Tekan CTRL+C di Terminal jika ingin menutup program...")
-    while True:
-        try:
-            time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nBot dimatikan oleh pengguna. Menutup browser...")
-            try:
-                driver.quit()
-            except:
-                pass
-            break
 
 if __name__ == "__main__":
     main()
