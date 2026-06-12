@@ -26,29 +26,62 @@ def muat_library_berat():
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.chrome.service import Service
     from datetime import datetime
-    import time
     
 def get_password_hidden(prompt="Masukkan Password        : "):
     """Membaca input password secara aman tanpa menampilkan karakter di terminal (Bisa Windows & Mac)"""
     password = getpass.getpass(prompt=prompt)
     return password
 
+def catat_ke_excel_rekap(nama, nik, status, file_target="rekap-daftarkan.xlsx"):
+    """Mencatat data siswa yang diproses langsung ke file Excel secara real-time"""
+    import openpyxl
+    from openpyxl import Workbook
+    from datetime import datetime
+    
+    waktu_sekarang = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    baris_baru = [nama, f"'{nik}", waktu_sekarang, status]
+
+    try:
+        if os.path.exists(file_target):
+            wb = openpyxl.load_workbook(file_target)
+            ws = wb.active
+        else:
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Nama", "NIK", "Tanggal Input", "Status"])
+        
+        ws.append(baris_baru)
+        wb.save(file_target)
+        wb.close()
+        print(f" 📑 [EXCEL LOG] Berhasil mencatat status '{status}' untuk {nama}")
+    except Exception as e:
+        print(f" ⚠️ Gagal mencatat rekap Excel secara real-time: {e}")
+
 def jalankan_bot():
+    """Fungsi otentikasi login dan pemeriksaan HWID keamanan"""
     current_hwid = auth.get_hwid()
    
-    if os.path.exists(auth.SESSION_FILE):
-        with open(auth.SESSION_FILE, "r") as f:
-            sesi = json.load(f)
-        
-        if auth.check_auto_login(sesi.get("local_id"), current_hwid):
-            print(" Sesi valid. Login otomatis berhasil!")
-        else:
-            print("Sesi tidak valid atau HWID berubah. Silakan login ulang.")
-            if os.path.exists(auth.SESSION_FILE):
-                os.remove(auth.SESSION_FILE)
-            os.system("pause")
-            sys.exit()
+    if os.path.exists(auth.SESSION_FILE) and os.path.getsize(auth.SESSION_FILE) > 0:
+        try:
+            with open(auth.SESSION_FILE, "r") as f:
+                sesi = json.load(f)
+            
+            if auth.check_auto_login(sesi.get("local_id"), current_hwid):
+                print(" Sesi valid. Login otomatis berhasil!")
+            else:
+                print("Sesi tidak valid atau HWID berubah. Silakan login ulang.")
+                if os.path.exists(auth.SESSION_FILE):
+                    os.remove(auth.SESSION_FILE)
+                os.system("pause") if sys.platform.startswith('win') else input()
+                sys.exit()
+        except json.JSONDecodeError:
+            print("⚠️ File sesi rusak. Mengatur ulang sesi...")
+            os.remove(auth.SESSION_FILE)
+            auto_login_failed = True
     else:
+        auto_login_failed = True
+
+    if not os.path.exists(auth.SESSION_FILE) or 'auto_login_failed' in locals():
         print("==================================================")
         print("             BOT CKG SEKOLAH DAFTARKAN               ")
         print("==================================================")
@@ -68,19 +101,26 @@ def jalankan_bot():
         print(f"\n {pesan}")
 
     muat_library_berat()
+
+def main():
     import time
+    import platform
+    from datetime import datetime
 
     nama_file = 'data.xlsx' 
     try:
         df = pd.read_excel(nama_file)
         df['NIK'] = df['NIK'].astype(str).str.replace('.0', '', regex=False)
+        
+        kolom_nama = next((c for c in df.columns if c.lower() == 'nama'), None)
+        
         if pd.api.types.is_datetime64_any_dtype(df['Tanggal Lahir']):
             df['Tanggal Lahir'] = df['Tanggal Lahir'].dt.strftime('%d/%m/%Y')
         else:
             df['Tanggal Lahir'] = df['Tanggal Lahir'].astype(str).str.strip()
     except Exception as e:
-        print(f"Gagal membaca file {nama_file}")
-        os.system("pause")
+        print(f" Gagal membaca file {nama_file}. Detail: {e}")
+        os.system("pause") if sys.platform.startswith('win') else input()
         return
 
     print(f" Berhasil membaca {len(df)} data NIK dari spreadsheet.")
@@ -92,44 +132,43 @@ def jalankan_bot():
         
         if baris_awal < 1 or baris_akhir > len(df) or baris_awal > baris_akhir:
             print("Rentang baris data tidak valid! Program dihentikan.")
-            os.system("pause")
             return
     except ValueError:
         print("Input harus berupa angka! Program dihentikan.")
-        os.system("pause")
         return
 
-    print("🔄 Sedang mencoba membuka Google Chrome...")
     options = webdriver.ChromeOptions()
-
-    user_profile = os.environ.get("USERPROFILE")
-    # options.add_argument("--user-data-dir=./ChromeProfile") 
-    
-    path_profile = os.path.join(user_profile, "AppData", "Local", "Google", "Chrome", "User Data", "BotKemenkesProfile")
+    path_profile = os.path.abspath("./ChromeProfile")
     options.add_argument(f"--user-data-dir={path_profile}") 
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--log-level=3") 
+    
+    sistem_os = platform.system().lower()
+    if "windows" in sistem_os:
+        options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+    elif "darwin" in sistem_os:
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+
+    options.add_argument("--log-level=3")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
 
     try:
         service = Service()
         driver = webdriver.Chrome(service=service, options=options)
         driver.maximize_window()
     except Exception as e:
-        print(f"Gagal membuka Google Chrome")
-        print("\n💡 SOLUSI: Jalankan 'taskkill /f /im chrome.exe' di CMD lalu coba lagi.")
-        os.system("pause")
+        print(f" Gagal membuka Google Chrome.")
+        print("\n💡 SOLUSI: Tutup semua window Google Chrome yang masih aktif berjalan di background.")
+        os.system("pause") if sys.platform.startswith('win') else input()
         return
 
     try:
         driver.get("https://sehatindonesiaku.kemkes.go.id/auth/login") 
 
         print("\n--- DETEKSI LOGIN ---")
-        print("Jika ini pertama kali, silakan BUKA BROWSER KIRI dan LOG IN MANUAL.")
-        print("Jika sudah pernah login, halaman akan otomatis masuk.")
         print("Pastikan Anda sudah stand-by di halaman utama, lalu tekan ENTER di Terminal...")
         input()
 
@@ -143,25 +182,24 @@ def jalankan_bot():
             except Exception:
                 pass
                 
-            time.sleep(0.2)
+            time.sleep(1.0)
             
             ckg_sekolah = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[text()='CKG Sekolah']")))
             driver.execute_script("arguments[0].scrollIntoView(true);", ckg_sekolah)
-            time.sleep(0.2)
+            time.sleep(1.0)
             ckg_sekolah.click()
             print("   -> Berhasil klik CKG Sekolah")
             
-            time.sleep(0.2)
+            time.sleep(1.0)
             cari_individu = wait.until(EC.element_to_be_clickable((By.ID, "menu_cari/daftarkan_individu")))
             driver.execute_script("arguments[0].scrollIntoView(true);", cari_individu)
-            time.sleep(0.2)
+            time.sleep(1.0)
             cari_individu.click()
             print("   -> Berhasil klik Cari/Daftarkan Individu")
-            time.sleep(0.2)
+            time.sleep(0.5)
         except Exception as e:
-            print(f"Gagal membuka menu navigasi awal")
+            print(f" Gagal membuka menu navigasi awal. Error: {e}")
             driver.quit()
-            os.system("pause")
             return
 
         for index, row in df.iloc[baris_awal-1:baris_akhir].iterrows():
@@ -169,11 +207,12 @@ def jalankan_bot():
             sekolah_sekarang = row['Sekolah']
             kelas_sekarang = row['kelas'] 
             jk_sekarang = row['Jenis Kelamin']
-            nama_sekarang = row['Nama']
+            nama_sekarang = row[kolom_nama] if kolom_nama else row.get('Nama', 'Tidak Ada Nama')
             hp_sekarang = row['Hp']
             tanggal_sekarang = str(row['Tanggal Lahir']).strip()
             alamat_sekarang = row['alamat']
-            print(f"\n[{index+1}/{len(df)}] Memproses NIK: {nik_sekarang}")
+            
+            print(f"\n🔍 [{index+1}/{len(df)}] Memproses NIK: {nik_sekarang}")
             
             try:
                 print("   Menunggu loading overlay hilang...")
@@ -183,37 +222,37 @@ def jalankan_bot():
                 except Exception:
                     pass
                     
-                time.sleep(0.2)
+                time.sleep(1.0)
                 
                 tombol_daftar_baru = wait.until(EC.element_to_be_clickable((
                     By.XPATH, "//button[descendant::*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'daftar baru')]]"
                 )))
                 driver.execute_script("arguments[0].scrollIntoView(true);", tombol_daftar_baru)
-                time.sleep(0.2)
+                time.sleep(1.0)
                 tombol_daftar_baru.click()
                 print("   -> Berhasil klik tombol Daftar Baru")
                 
-                time.sleep(0.2)
+                time.sleep(1.0)
                 field_nik = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='text' or @type='number']")))
                 field_nik.clear()             
-                time.sleep(0.2)
+                time.sleep(1.0)
                 field_nik.send_keys(nik_sekarang) 
                 print(f"    Berhasil mengisi NIK {nik_sekarang} ke dalam kolom.")
                 
-                time.sleep(0.2) 
+                time.sleep(1.0) 
                 tombol_cek_nik = wait.until(EC.element_to_be_clickable((
                     By.XPATH, "//button[descendant::*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'cek nik')]]"
                 )))
                 driver.execute_script("arguments[0].scrollIntoView(true);", tombol_cek_nik)
-                time.sleep(0.2)
+                time.sleep(1.0)
                 tombol_cek_nik.click()
                 print("   -> Berhasil klik cek nik")
                 
-                time.sleep(0.2) 
+                time.sleep(1.0) 
                 
                 data_ditemukan = False
                 try:
-                    short_wait = WebDriverWait(driver, 7)
+                    short_wait = WebDriverWait(driver, 5)
                     tombol_gunakan_data = short_wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Gunakan Data')]")))
                     data_ditemukan = True
                 except Exception:
@@ -222,50 +261,66 @@ def jalankan_bot():
                 if data_ditemukan:
                     print("   [Kondisi] DATA DITEMUKAN di sistem!")
                     driver.execute_script("arguments[0].scrollIntoView(true);", tombol_gunakan_data)
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_gunakan_data.click()
                     
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_selanjutnya = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(., 'Selanjutnya')]")))
                     driver.execute_script("arguments[0].scrollIntoView(true);", tombol_selanjutnya)
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_selanjutnya.click()
                     
-                    time.sleep(0.2)
+                    try:
+                        short_wait = WebDriverWait(driver, 2)
+                        sudah_layanan = short_wait.until(EC.presence_of_element_located((
+                            By.XPATH, "//div[contains(text(), 'Individu sudah menerima layanan')]"
+                        )))
+                        if sudah_layanan.is_displayed():
+                            catat_ke_excel_rekap(nama=nama_sekarang, nik=nik_sekarang, status="Sudah Menerima Layanan")
+                            
+                            driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pendaftaran-anak-sekolah")
+                            time.sleep(1.0)
+                            continue
+                    except Exception:
+                        pass
+                    
+                    time.sleep(1.0)
                     tombol_lanjutkan = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Lanjutkan')]")))
                     driver.execute_script("arguments[0].scrollIntoView(true);", tombol_lanjutkan)
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_lanjutkan.click()
                     
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_selanjutnya_dua = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(., 'Selanjutnya')]")))
                     driver.execute_script("arguments[0].scrollIntoView(true);", tombol_selanjutnya_dua)
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_selanjutnya_dua.click()
                     
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_tutup = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Tutup')]")))
                     driver.execute_script("arguments[0].scrollIntoView(true);", tombol_tutup)
-                    time.sleep(0.2)
+                    time.sleep(1.0)
                     tombol_tutup.click()
-                    print("   -> Berhasil menyelesaikan alur data otomatis.")
+                    time.sleep(1.0)
+                    
+                    catat_ke_excel_rekap(nama=nama_sekarang, nik=nik_sekarang, status="Berhasil didaftarkan")
+                
                 else:
                     try:
                         print("Mencari dan memfokuskan kursor ke field input Nama Lengkap...")
                         input_nama = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@name='Nama' or @placeholder='Masukkan nama lengkap']")))
                         
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_nama)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         input_nama.click()
                         input_nama.clear()
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
-                        print(f"Memasukkan Nama dari CSV: {nama_sekarang}")
+                        print(f"Memasukkan Nama: {nama_sekarang}")
                         input_nama.send_keys(nama_sekarang)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         input_nama.send_keys(Keys.ENTER)
-                        print("-> Menekan ENTER untuk memproses...")
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
                         tanggal_str_bersih = str(tanggal_sekarang).strip().split(" ")[0]
 
@@ -283,6 +338,7 @@ def jalankan_bot():
                         except Exception as parse_err:
                             print(f"       [ERROR] Gagal parsing tanggal '{tanggal_sekarang}': {parse_err}")
                             raise parse_err
+                            
                         tanggal_target = tanggal_obj.strftime('%Y-%m-%d')
                         tahun_target = tanggal_obj.year
                         bulan_target = tanggal_obj.month
@@ -305,7 +361,7 @@ def jalankan_bot():
                                 driver.find_element(By.XPATH, "//button[contains(@class, 'mx-btn-icon-double-left')]").click()
                             else:
                                 driver.find_element(By.XPATH, "//button[contains(@class, 'mx-btn-icon-double-right')]").click()
-                            time.sleep(0.3)
+                            time.sleep(1.0)
 
                         print(f"Menyesuaikan bulan ke {bulan_target}...")
                         bulan_map = {
@@ -321,10 +377,7 @@ def jalankan_bot():
                             bulan_tampil = bulan_map.get(bulan_tampil_text.lower().strip(), 0)
                             tahun_tampil = int(tahun_tampil_text)
                             
-                            print(f"Web saat ini: {bulan_tampil_text} {tahun_tampil} (Target: {bulan_target} {tahun_target})")
-                            
                             if bulan_tampil == bulan_target and tahun_tampil == tahun_target:
-                                print("-> Bulan dan Tahun sudah sesuai!")
                                 break
                                 
                             if tahun_tampil > tahun_target:
@@ -335,7 +388,6 @@ def jalankan_bot():
                                 driver.find_element(By.XPATH, "//button[contains(@class, 'mx-btn-icon-left')]").click()
                             else:
                                 driver.find_element(By.XPATH, "//button[contains(@class, 'mx-btn-icon-right')]").click()
-                                
                             time.sleep(0.4)
 
                         print(f"Memilih tanggal: {tanggal_target}")
@@ -343,32 +395,30 @@ def jalankan_bot():
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemen_tanggal)
                         time.sleep(0.5)
                         elemen_tanggal.click()
-                        print("Berhasil mengisi tanggal lahir.")
                         time.sleep(0.5)
+                        
                         print("Membuka dropdown jenis kelamin...")
                         dropdown_jk = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(., 'Pilih jenis kelamin') and @class[contains(., 'cursor-pointer')]]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_jk)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         dropdown_jk.click()
-                        time.sleep(0.2)
+                        time.sleep(1.0)
 
                         target_jk = str(jk_sekarang).strip().lower()
-                        print(f"Memilih jenis kelamin: {jk_sekarang}")
                         opsi_jk = wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[@data-v-fa819537 and not(contains(@class, 'absolute'))]//div[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_jk}')]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_jk)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         opsi_jk.click()
-                        print("Berhasil mengisi jenis kelamin.")
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         
                         print(f"Mengisi nomor WhatsApp: {hp_sekarang}")
                         input_wa = wait.until(EC.element_to_be_clickable((By.ID, "No Whatsapp")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_wa)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
                         input_wa.click()
                         input_wa.clear()
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
                         no_wa = str(hp_sekarang).strip().replace('.0', '')
                         if no_wa.startswith('+62'):
@@ -379,13 +429,12 @@ def jalankan_bot():
                             no_wa = no_wa[1:]
                             
                         input_wa.send_keys(no_wa)
-                        print("Berhasil mengisi nomor WhatsApp.")
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         
                         print("Mengklik tombol Selanjutnya...")
                         tombol_selanjutnya_manual = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(., 'Selanjutnya')]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_selanjutnya_manual)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         tombol_selanjutnya_manual.click()
                         time.sleep(1.0)
                         
@@ -394,78 +443,71 @@ def jalankan_bot():
                                 EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Data peserta tidak valid')]"))
                             )
                             if pesan_error.is_displayed():
+                                catat_ke_excel_rekap(nama=nama_sekarang, nik=nik_sekarang, status="Data Tidak Valid")
                                 print("⚠️ [Sistem Kemenkes]: Data peserta tidak valid! Melakukan redirect...")
                                 driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pendaftaran-anak-sekolah")
                                 time.sleep(1.5)
                                 continue 
                         except Exception:
-                            print("Mengklik tombol Lanjutkan...")
+                            pass
 
                         print("Mengklik tombol Lanjutkan...")
                         tombol_lanjutkan_dua = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='button' and contains(., 'Lanjutkan')]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_lanjutkan_dua)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         tombol_lanjutkan_dua.click()
                         time.sleep(1.0) 
                         
                         print("Membuka dropdown status pernikahan...")
                         dropdown_status = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(., 'Pilih status pernikahan') and @class[contains(., 'cursor-pointer')]]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_status)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         dropdown_status.click()
-                        time.sleep(0.2)
+                        time.sleep(1.0)
 
-                        print("Memilih default opsi: Belum Menikah")
                         opsi_belum_menikah = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'belum menikah')]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_belum_menikah)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         opsi_belum_menikah.click()
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         
                         print("Membuka dropdown penyandang disabilitas...")
                         dropdown_disabilitas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(., 'Pilih penyandang disabilitas') and @class[contains(., 'cursor-pointer')]]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_disabilitas)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         dropdown_disabilitas.click()
-                        time.sleep(0.2)
+                        time.sleep(1.0)
 
-                        print("Memilih default opsi: Tidak")
                         opsi_tidak_disabilitas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'cursor-pointer')]//div[translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='tidak' or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'tidak memiliki')]")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_tidak_disabilitas)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         opsi_tidak_disabilitas.click()
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         
                         print("Membuka modal pemilihan nama sekolah...")
                         dropdown_sekolah = wait.until(EC.element_to_be_clickable((
                             By.XPATH, "//div[contains(@class, 'min-h-') and contains(@class, 'cursor-pointer') and contains(text(), 'Pilih nama sekolah')]"
                         )))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown_sekolah)
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         driver.execute_script("arguments[0].click();", dropdown_sekolah)
-                        time.sleep(0.8)
+                        time.sleep(1.0)
 
                         nama_sekolah_target = str(sekolah_sekarang).strip()
-                        print(f"Mengetik nama sekolah di kolom pencarian: {nama_sekolah_target}")
                         input_cari_sekolah = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Cari nama sekolah']")))
                         
                         input_cari_sekolah.click()
                         input_cari_sekolah.clear()
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
                         for char in nama_sekolah_target:
                             input_cari_sekolah.send_keys(char)
                             time.sleep(0.05)
                         
                         input_cari_sekolah.send_keys(Keys.SPACE)
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         input_cari_sekolah.send_keys(Keys.BACKSPACE)
-                        
-                        print("Menunggu filter daftar sekolah selesai memuat...")
                         time.sleep(1.5) 
-
-                        print(f"Memilih sekolah yang cocok dengan: {nama_sekolah_target}")
-                        target_sekolah_lower = nama_sekolah_target.lower()
 
                         semua_opsi = wait.until(EC.presence_of_all_elements_located((
                             By.XPATH, "//button[contains(@class, 'w-full') and contains(@class, 'text-left')]"
@@ -473,18 +515,17 @@ def jalankan_bot():
 
                         opsi_sekolah = None
                         for btn in semua_opsi:
-                            if target_sekolah_lower in btn.text.strip().lower():
+                            if nama_sekolah_target.lower() in btn.text.strip().lower():
                                 opsi_sekolah = btn
                                 break
 
                         if opsi_sekolah is None:
                             raise Exception(f"Sekolah '{nama_sekolah_target}' tidak ditemukan di daftar!")
 
-                        print(f"   Ditemukan: {opsi_sekolah.text.strip()}")
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", opsi_sekolah)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         driver.execute_script("arguments[0].click();", opsi_sekolah)
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         
                         print(f"Memilih jenjang kelas: {kelas_sekarang}")
                         kelas_target = f"Kelas {kelas_sekarang}" 
@@ -498,7 +539,7 @@ def jalankan_bot():
                                 }
                             }
                         """)
-                        time.sleep(0.8)
+                        time.sleep(1.0)
 
                         semua_opsi_kelas = wait.until(EC.presence_of_all_elements_located((
                             By.XPATH, "//button[contains(@class, 'w-full') and contains(@class, 'text-left')]"
@@ -513,54 +554,53 @@ def jalankan_bot():
                         if opsi_kelas is None:
                             raise Exception(f"Kelas '{kelas_target}' tidak ditemukan!")
 
-                        print(f"   Ditemukan: {opsi_kelas.text.strip()}")
                         driver.execute_script("arguments[0].click();", opsi_kelas)
-                        time.sleep(0.2)
+                        time.sleep(1.0)
                         
-                        print("Trigger checkbox alamat sama dengan sekolah...")
-                        time.sleep(0.2)
+                        print("Trigger checkbox alamat...")
+                        time.sleep(1.0)
 
                         custom_check = wait.until(EC.element_to_be_clickable((
                             By.XPATH, "//input[@name='sameAddress']/following-sibling::div[contains(@class,'check')]"
                         )))
 
                         driver.execute_script("arguments[0].click();", custom_check)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         driver.execute_script("arguments[0].click();", custom_check)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         driver.execute_script("arguments[0].click();", custom_check)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
-                        print(f"Mengisi alamat detail domisili: {alamat_sekarang}")
+                        print(f"Mengisi alamat: {alamat_sekarang}")
                         input_alamat = wait.until(EC.element_to_be_clickable((By.ID, "detail-domisili")))
                         driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_alamat)
-                        time.sleep(0.3)
+                        time.sleep(1.0)
                         
                         input_alamat.click()
                         input_alamat.clear()
-                        time.sleep(0.3)
-                        
-                        teks_alamat = str(alamat_sekarang).strip()
-                        input_alamat.send_keys(teks_alamat)
-                        time.sleep(0.2)
-                        
-                        print("Mengklik tombol Selanjutnya setelah alamat...")
-                        tombol_selanjutnya_akhir = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(., 'Selanjutnya')]")))
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_selanjutnya_akhir)
-                        time.sleep(0.3)
-                        
-                        driver.execute_script("arguments[0].click();", tombol_selanjutnya_akhir)
-                        print("Berhasil klik Selanjutnya. Beralih ke tahap berikutnya.")
                         time.sleep(1.0)
                         
+                        input_alamat.send_keys(str(alamat_sekarang).strip())
+                        time.sleep(1.0)
+                        
+                        print("Mengklik tombol Selanjutnya akhir...")
+                        tombol_selanjutnya_akhir = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@type='submit' and contains(., 'Selanjutnya')]")))
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tombol_selanjutnya_akhir)
+                        time.sleep(1.0)
+                        driver.execute_script("arguments[0].click();", tombol_selanjutnya_akhir)
+                        time.sleep(1.0)
+                        
+                        catat_ke_excel_rekap(nama=nama_sekarang, nik=nik_sekarang, status="Berhasil didaftarkan")
+                        
                         driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pendaftaran-anak-sekolah")
+                        time.sleep(1.0)
                         
                     except Exception as e:
-                        print(f"Gagal mengisi data manual atau sekolah")
+                        print(f" Gagal mengisi data manual atau sekolah: {e}")
+                        catat_ke_excel_rekap(nama=nama_sekarang, nik=nik_sekarang, status="Gagal Form Manual")
 
             except Exception as e:
-                print(f"   Gagal memproses baris ini")
-                print("   Mencoba memulihkan navigasi halaman ke dashboard utama...")
+                print(f" Gagal memproses baris ini. Mengembalikan halaman ke dashboard awal...")
                 try:
                     driver.get("https://sehatindonesiaku.kemkes.go.id/ckg-pendaftaran-anak-sekolah")
                     time.sleep(1.0)
@@ -568,14 +608,24 @@ def jalankan_bot():
                     pass
 
     except KeyboardInterrupt:
-        print("\n🛑 Program dihentikan paksa oleh pengguna.")
+        print("\ Program dihentikan paksa oleh pengguna.")
     finally:
-        print("\n🏁 Pemrosesan selesai. Menutup browser...")
+        print("\n==================================================")
+        print("Sesi browser dipertahankan agar tidak langsung tutup.")
+        print("Gunakan CTRL+C untuk keluar dari program secara bersih.")
         try:
-            driver.quit()
-        except:
-            pass
-        os.system("pause")
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nMenutup koneksi browser Chrome...")
+            try:
+                driver.quit()
+            except:
+                pass
 
-if __name__ == '__main__':
-    jalankan_bot()
+if __name__ == "__main__":
+    try:
+        jalankan_bot()
+        main()
+    except Exception as fatal_err:
+        print(f"Terjadi error fatal luar: {fatal_err}")
